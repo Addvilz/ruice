@@ -4,6 +4,14 @@
 >
 > \- *Me, a minor Ruby hater*
 
+Ruice is a DIC container implemented in less than 150 lines of Ruby code.
+
+It allows for:
+
+- Automatic injection in instance props
+- Configuration properties
+- Autowiring by class name
+
 ## Development status
 
 I literally wrote this in 12 minutes. Are you mad?
@@ -26,7 +34,61 @@ Or install it yourself as:
 
 ## Usage
 
-TODO. Read source if you want.
+```ruby
+
+class DependencyA
+end
+
+class InjectionPoint
+  def initialize
+    @dependency_a = Ruice::Dependency.new DependencyA
+    @property = Ruice::Property 'my.config.property'
+    @env = Ruice::Property 'env'
+  end
+  
+  def dic_ready
+    # Method always invoked when @injected props have been replaced
+  end
+  
+  def something
+    @dependency # Instance of DependencyA
+    @property # 'FooBar'
+    @env # 'production'
+  end
+end
+
+container = Ruice::Container.new(
+  {
+    my: {
+      config: {
+        property: 'FooBar'
+      }
+    }
+  },
+  'production'
+)
+
+# Register dependency by class
+container.with(Logger, proc {
+  Logger.new('/dev/null')
+})
+
+# Register dependency by name
+
+container.with('my_logger', proc {
+  Logger.new('/dev/null')
+})
+
+# Automatically created instance
+injection_point = container.request InjectionPoint
+
+# Instance of by class Logger
+logger = container.request Logger
+
+# Instance of by name Logger
+logger = container.request 'my_logger' 
+
+```
 
 ## Development
 
