@@ -1,67 +1,116 @@
-# TODO:
-# - named dependencies
-# - dependency sets
-# - ???
 module Ruice
   class Dependency
-    def initialize(target, require_new = false)
+    def initialize(target, is_fresh = false)
       @target = target
-      @require_new = require_new
+      @is_fresh = is_fresh
     end
 
-    attr_reader :target
-    attr_reader :require_new
+    attr_reader :target, :is_fresh, :named
+  end
+
+  class Property
+    def initialize(name, default = nil)
+      @name = name
+      @default = default
+    end
+
+    attr_reader :name, :default
   end
 
   class Container
-    def initialize
+    def initialize(properties = {}, env = 'default')
+      raise ArgumentError, 'Container properties can not be nil' if properties.nil?
+      raise ArgumentError, 'Container properties is not a Hash' unless properties.is_a? Hash
+      raise ArgumentError, 'Environment can not be nil' if env.nil?
+      raise ArgumentError, 'Environment must be a string' unless env.is_a? String
+
+      properties[:env] = env
+
+      @properties = properties
+      @env = env.to_sym
+
       @bindings = {}
       @instances = {}
     end
 
-    def request(target_class)
-      return self if target_class == DIC::Container
+    attr_reader :env
 
-      return @instances[target_class] if @instances.key? target_class
+    def lookup_property(name, default = nil)
+      path = name.split '.'
+      current = @properties
+      path.each do |key_part|
+        break if current.nil?
 
-      instance = request_new target_class
+        raise Exception, 'Can not access value subkey for non-hash ' + current unless current.is_a? Hash
 
-      @instances[target_class] = instance
+        sym_part = key_part.to_sym
+
+        current = current.fetch(sym_part, nil) || current.fetch(key_part, nil)
+      end
+
+      current || default
+    end
+
+    def request(name)
+      return self if name == Ruice::Container
+
+      return @instances[name] if @instances.key? name
+
+      instance = request_new name
+
+      @instances[name] = instance
 
       instance
     end
 
-    def request_new(target_class)
-      return self if target_class == DIC::Container
+    def request_new(name)
+      return self if name == Ruice::Container
 
-      return @bindings[target_class].call self if @bindings.key? target_class
+      return @bindings[name].call self if @bindings.key? name
 
-      instance = target_class.new
+      raise ArgumentError, 'Dependency name is not class, and no bindings are present' unless name.respond_to? :new
+
+      instance = name.new
       vars = instance.instance_variables
 
       vars.each do |it|
         value = instance.instance_variable_get it
 
-        next unless value.is_a? Dependency
+        next unless value.is_a?(Dependency) || value.is_a?(Property)
 
-        replacement = if value.require_new
-                        request_new value.target
-                      else
-                        request value.target
-                      end
+        replacement = nil
+        replacement = lookup_property value.name, value.default if value.is_a? Property
+
+        if value.is_a? Dependency
+          replacement = if value.is_fresh
+                          request_new value.target
+                        else
+                          request value.target
+                        end
+        end
 
         instance.instance_variable_set it, replacement
       end
 
-      instance.dic_ready(self) if instance.methods.include? :dic_ready
+      instance.dic_ready if instance.methods.include? :dic_ready
 
       instance
     end
 
-    def attach(name, provider)
-      raise ArgumentError, 'Argument must be instance of Proc' unless provider.is_a? Proc
+    def with(name, subject)
+      if subject.is_a? Proc
 
-      @bindings[name] = provider
+        raise ArgumentError, 'Duplicate provider - ' + name if @bindings.key? name
+
+        @bindings[name] = subject
+        return
+      end
+
+      raise ArgumentError, 'Duplicate instance - ' + name if @instances.key? name
+
+      @instances[name] = subject
+
+      self
     end
   end
 end
